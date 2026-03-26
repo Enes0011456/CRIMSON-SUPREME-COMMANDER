@@ -21,3 +21,5 @@ pip install -r requirements.txt
 / / / / Çalıştırma:
 
 sudo python3 (dosya adı).py
+//////////////ilk komut olmazsa bunu deneyin:
+sudo -E venv/bin/python CRIMSON_SUPREME_COMMANDER.py
